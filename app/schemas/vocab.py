@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import Gender, Auxiliary, WordType
 
@@ -22,7 +22,7 @@ class NounDetailBase(BaseModel):
 
 
 class NounDetailRead(NounDetailBase):
-    pass
+    model_config = ConfigDict(from_attributes=True)
 
 
 class NounWordRead(WordBase):
@@ -39,7 +39,7 @@ class VerbDetailBase(BaseModel):
 
 
 class VerbDetailRead(VerbDetailBase):
-    pass
+    model_config = ConfigDict(from_attributes=True)
 
 
 class VerbWordRead(WordBase):
@@ -50,6 +50,8 @@ class VerbWordRead(WordBase):
 
 # --- Union response for random word ---
 class WordRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     german: str
     translation: str
@@ -62,12 +64,11 @@ class WordRead(BaseModel):
     noun_detail: NounDetailRead | None = None
     verb_detail: VerbDetailRead | None = None
 
-    class Config:
-        from_attributes = True
-
 
 # --- Progress ---
 class ProgressRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     word_id: int
     ease_factor: float
@@ -77,9 +78,6 @@ class ProgressRead(BaseModel):
     last_reviewed_at: datetime | None = None
     correct_count: int
     incorrect_count: int
-
-    class Config:
-        from_attributes = True
 
 
 class WordWithProgress(WordRead):

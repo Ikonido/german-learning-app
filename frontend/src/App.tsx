@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import Flashcard from "./components/Flashcard";
 import type { CheckAnswerResponse, Word } from "./types";
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+// When using Vite proxy (recommended for dev), leave empty so calls go to /vocab/*
+// In production or when running frontend separately, set VITE_API_URL=http://your-backend
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 export default function App() {
   const [word, setWord] = useState<Word | null>(null);

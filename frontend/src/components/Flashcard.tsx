@@ -1,4 +1,5 @@
-import { FormEvent, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import type { FormEvent } from "react";
 import type { CheckAnswerResponse, Gender, NounDetails, VerbDetails, Word } from "../types";
 
 interface FlashcardProps {
@@ -152,7 +153,7 @@ export default function Flashcard({
                   <p className="font-semibold text-slate-950">{word.german}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-slate-500">Prateritum</p>
+                  <p className="text-sm text-slate-500">Präteritum</p>
                   <p className="font-semibold text-slate-950">{verbDetails.praeteritum}</p>
                 </div>
                 <div>

@@ -149,6 +149,16 @@ def check_translation(
     user_answer_clean = user_answer.strip().lower()
     correct_display = build_correct_answer_display(word)
 
+    import re
+    translation_candidates = []
+    for part in re.split(r'[,;]', word.translation):
+        part_clean = part.strip().lower()
+        if part_clean:
+            translation_candidates.append(part_clean)
+            no_paren = re.sub(r'\(.*?\)', '', part_clean).strip()
+            if no_paren and no_paren != part_clean:
+                translation_candidates.append(no_paren)
+
     is_correct = False
 
     if word.word_type == WordType.NOUN and word.noun_detail:
@@ -163,7 +173,7 @@ def check_translation(
                 d.plural.lower(),
                 f"die {d.plural}".lower(),
             ])
-        is_correct = user_answer_clean in candidates
+        is_correct = (user_answer_clean in candidates) or (user_answer_clean in translation_candidates)
 
     elif word.word_type == WordType.VERB and word.verb_detail:
         v = word.verb_detail
@@ -174,11 +184,11 @@ def check_translation(
             f"{v.auxiliary.value} {v.perfekt}".lower(),
             f"{v.auxiliary.value}{v.perfekt}".lower(),
         ]
-        is_correct = user_answer_clean in [c.strip() for c in candidates]
+        is_correct = (user_answer_clean in [c.strip() for c in candidates]) or (user_answer_clean in translation_candidates)
 
     else:
-        # Fallback: exact match on base or translation (but we check German answer)
-        is_correct = user_answer_clean == word.german.lower()
+        # Fallback: exact match on base or translation
+        is_correct = (user_answer_clean == word.german.lower()) or (user_answer_clean in translation_candidates)
 
     # Update progress if user is authenticated
     if user_id is not None:
