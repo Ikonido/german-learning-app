@@ -57,3 +57,25 @@ export interface CheckAnswerResponse {
   word_type: WordType;
   task_type: TaskType | null;
 }
+
+export interface MatchingWord {
+  id: number;
+  word_text: string;
+}
+
+export interface MatchingTranslation {
+  id: number;
+  translation_text: string;
+}
+
+export interface MatchingGameResponse {
+  german_words: MatchingWord[];
+  russian_translations: MatchingTranslation[];
+  count: number;
+}
+
+export interface MatchingCheckResponse {
+  correct_count: number;
+  message: string;
+  xp_earned: number;
+}
