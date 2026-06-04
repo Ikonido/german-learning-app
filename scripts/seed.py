@@ -1,6 +1,8 @@
 """
-Seed initial German vocabulary data.
-Run: python scripts/seed.py
+Initial (small) seed. For a rich dataset with 120+ A1-A2 words and example sentences
+use the expanded seeder instead:
+
+    python scripts/seed_expanded.py
 """
 import sys
 import os

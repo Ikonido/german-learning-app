@@ -1,6 +1,7 @@
 export type WordType = "noun" | "verb";
 export type Gender = "der" | "die" | "das";
 export type Auxiliary = "haben" | "sein";
+export type TaskType = "direct_translation" | "reverse_translation" | "fill_blank";
 
 export interface NounDetails {
   gender: Gender;
@@ -30,9 +31,11 @@ export interface Word {
   german: string;
   translation: string;
   word_type: WordType;
+  task_type: TaskType;
   level: string | null;
   category: string | null;
   example_sentence: string | null;
+  blank_sentence: string | null;
   noun_detail?: NounDetails | null;
   verb_detail?: VerbDetails | null;
   noun_details?: NounDetails | null;
@@ -42,6 +45,7 @@ export interface Word {
 
 export interface CheckAnswerRequest {
   answer: string;
+  task_type?: TaskType;
 }
 
 export interface CheckAnswerResponse {
@@ -51,4 +55,5 @@ export interface CheckAnswerResponse {
   message: string;
   word_id: number;
   word_type: WordType;
+  task_type: TaskType | null;
 }

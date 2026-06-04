@@ -6,6 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.models.enums import Gender, Auxiliary, WordType
 
 
+TaskType = Literal["direct_translation", "reverse_translation", "fill_blank"]
+
+
 # --- Shared ---
 class WordBase(BaseModel):
     german: str
@@ -84,9 +87,19 @@ class WordWithProgress(WordRead):
     progress: ProgressRead | None = None
 
 
+class WordWithTask(WordWithProgress):
+    """Response for /random that now includes a randomly assigned task type."""
+    task_type: TaskType
+    blank_sentence: str | None = None  # only for fill_blank tasks
+
+
 # --- Check answer ---
 class CheckAnswerRequest(BaseModel):
-    answer: str = Field(..., min_length=1, description="User's answer, e.g. 'der Tisch' or 'gegangen'")
+    answer: str = Field(..., min_length=1, description="User's answer, e.g. 'der Tisch' or 'gegangen' or Russian translation")
+    task_type: TaskType | None = Field(
+        None,
+        description="Type of exercise the user received: direct_translation, reverse_translation or fill_blank"
+    )
 
 
 class CheckAnswerResponse(BaseModel):
@@ -96,4 +109,5 @@ class CheckAnswerResponse(BaseModel):
     message: str
     word_id: int
     word_type: WordType
+    task_type: TaskType | None = None
     # For future: points_earned, streak etc

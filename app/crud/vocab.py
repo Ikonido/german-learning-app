@@ -60,6 +60,39 @@ def get_random_word(
     return random.choice(words)
 
 
+def get_random_word_with_task(
+    db: Session,
+    word_type: WordType | None = None,
+    level: str | None = None,
+    user_id: int | None = None,
+    exclude_known: bool = True,
+) -> tuple[Word | None, str, str | None]:
+    """
+    Returns a random word + a randomly chosen task_type for the exercise.
+    Also returns precomputed blank_sentence when task_type == 'fill_blank'.
+    """
+    word = get_random_word(
+        db=db,
+        word_type=word_type,
+        level=level,
+        user_id=user_id,
+        exclude_known=exclude_known,
+    )
+    if not word:
+        return None, "direct_translation", None
+
+    task_type: str = random.choice(
+        ["direct_translation", "reverse_translation", "fill_blank"]
+    )
+
+    blank_sentence: str | None = None
+    if task_type == "fill_blank" and word.example_sentence:
+        # Replace the vocabulary item with blank. The sentence in DB must contain the exact german word.
+        blank_sentence = word.example_sentence.replace(word.german, "___")
+
+    return word, task_type, blank_sentence
+
+
 def get_or_create_progress(db: Session, user_id: int, word_id: int) -> UserProgress:
     progress = (
         db.query(UserProgress)
@@ -136,72 +169,125 @@ def build_correct_answer_display(word: Word) -> str:
 
 
 def check_translation(
-    db: Session, word_id: int, user_answer: str, user_id: int | None = None
+    db: Session,
+    word_id: int,
+    user_answer: str,
+    task_type: str | None = None,
+    user_id: int | None = None,
 ) -> CheckAnswerResponse:
     """
-    Check user's answer against the word.
-    For nouns we accept "der Tisch", "Tisch", "die Tische" etc.
+    Check user's answer depending on the task_type.
+    - direct_translation: user saw German, must type Russian translation
+    - reverse_translation: user saw Russian, must type German (with article for nouns)
+    - fill_blank: user must type the missing word (usually the german base form)
     """
     word = get_word_by_id(db, word_id)
     if not word:
         raise ValueError("Word not found")
 
+    if task_type not in ("direct_translation", "reverse_translation", "fill_blank"):
+        task_type = "direct_translation"  # safe default
+
     user_answer_clean = user_answer.strip().lower()
-    correct_display = build_correct_answer_display(word)
 
-    import re
-    translation_candidates = []
-    for part in re.split(r'[,;]', word.translation):
-        part_clean = part.strip().lower()
-        if part_clean:
-            translation_candidates.append(part_clean)
-            no_paren = re.sub(r'\(.*?\)', '', part_clean).strip()
-            if no_paren and no_paren != part_clean:
-                translation_candidates.append(no_paren)
+    # Helper for Russian translation matching (supports comma separated + parenthetical notes)
+    def _get_translation_candidates() -> list[str]:
+        import re
+        candidates = []
+        for part in re.split(r"[,;]", word.translation):
+            part_clean = part.strip().lower()
+            if part_clean:
+                candidates.append(part_clean)
+                no_paren = re.sub(r"\(.*?\)", "", part_clean).strip()
+                if no_paren and no_paren != part_clean:
+                    candidates.append(no_paren)
+        return candidates
 
+    translation_candidates = _get_translation_candidates()
     is_correct = False
+    correct_answer = ""
+    message = ""
 
-    if word.word_type == WordType.NOUN and word.noun_detail:
-        d = word.noun_detail
-        candidates = [
-            word.german.lower(),
-            f"{d.gender.value} {word.german}".lower(),
-            f"{d.gender.value}{word.german}".lower(),
-        ]
-        if d.plural:
-            candidates.extend([
-                d.plural.lower(),
-                f"die {d.plural}".lower(),
-            ])
-        is_correct = (user_answer_clean in candidates) or (user_answer_clean in translation_candidates)
+    if task_type == "direct_translation":
+        # German → Russian
+        # Accept any of the translation variants
+        is_correct = user_answer_clean in translation_candidates
+        correct_answer = word.translation
+        message = "Отлично!" if is_correct else f"Правильно: {word.translation}"
 
-    elif word.word_type == WordType.VERB and word.verb_detail:
-        v = word.verb_detail
-        candidates = [
-            word.german.lower(),
-            v.praeteritum.lower(),
-            v.perfekt.lower(),
-            f"{v.auxiliary.value} {v.perfekt}".lower(),
-            f"{v.auxiliary.value}{v.perfekt}".lower(),
-        ]
-        is_correct = (user_answer_clean in [c.strip() for c in candidates]) or (user_answer_clean in translation_candidates)
+    elif task_type == "reverse_translation":
+        # Russian → German (use rich German form display)
+        correct_display = build_correct_answer_display(word)
 
-    else:
-        # Fallback: exact match on base or translation
-        is_correct = (user_answer_clean == word.german.lower()) or (user_answer_clean in translation_candidates)
+        if word.word_type == WordType.NOUN and word.noun_detail:
+            d = word.noun_detail
+            candidates = [
+                word.german.lower(),
+                f"{d.gender.value} {word.german}".lower(),
+                f"{d.gender.value}{word.german}".lower(),
+            ]
+            if d.plural:
+                candidates.extend([
+                    d.plural.lower(),
+                    f"die {d.plural}".lower(),
+                ])
+            is_correct = user_answer_clean in candidates or user_answer_clean in translation_candidates
 
-    # Update progress if user is authenticated
+        elif word.word_type == WordType.VERB and word.verb_detail:
+            v = word.verb_detail
+            candidates = [
+                word.german.lower(),
+                v.praeteritum.lower(),
+                v.perfekt.lower(),
+                f"{v.auxiliary.value} {v.perfekt}".lower(),
+                f"{v.auxiliary.value}{v.perfekt}".lower(),
+            ]
+            is_correct = user_answer_clean in [c.strip() for c in candidates] or user_answer_clean in translation_candidates
+
+        else:
+            is_correct = user_answer_clean == word.german.lower() or user_answer_clean in translation_candidates
+
+        correct_answer = correct_display
+        message = "Отлично!" if is_correct else f"Правильно: {correct_display}"
+
+    elif task_type == "fill_blank":
+        # Fill in the blank — expect the vocabulary word (lemma)
+        # For nouns we are lenient and also accept article + noun
+        expected = word.german.lower()
+        is_correct = user_answer_clean == expected
+
+        if word.word_type == WordType.NOUN and word.noun_detail:
+            d = word.noun_detail
+            noun_candidates = [
+                word.german.lower(),
+                f"{d.gender.value} {word.german}".lower(),
+            ]
+            is_correct = user_answer_clean in noun_candidates
+
+        elif word.word_type == WordType.VERB and word.verb_detail:
+            # Accept infinitive or the forms that would fit in sentence
+            v = word.verb_detail
+            verb_candidates = [
+                word.german.lower(),
+                v.praeteritum.lower(),
+                v.perfekt.lower(),
+            ]
+            is_correct = user_answer_clean in verb_candidates
+
+        correct_answer = word.german
+        message = "Отлично!" if is_correct else f"Правильно: {word.german}"
+
+    # Update SRS progress (same for all task types)
     if user_id is not None:
         progress = get_or_create_progress(db, user_id, word.id)
         update_progress_after_review(db, progress, is_correct)
 
-    message = "Отлично!" if is_correct else f"Правильно: {correct_display}"
-
     return CheckAnswerResponse(
         correct=is_correct,
-        correct_answer=correct_display,
+        correct_answer=correct_answer,
         translation=word.translation,
         message=message,
         word_id=word.id,
         word_type=word.word_type,
+        task_type=task_type,  # type: ignore[arg-type]
     )

@@ -1,32 +1,131 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Flashcard from "./components/Flashcard";
 import type { CheckAnswerResponse, Word } from "./types";
 
-// When using Vite proxy (recommended for dev), leave empty so calls go to /vocab/*
-// In production or when running frontend separately, set VITE_API_URL=http://your-backend
-const API_URL = import.meta.env.VITE_API_URL || '';
+const FALLBACK_TRANSLATIONS = [
+  "дом",
+  "стол",
+  "книга",
+  "вода",
+  "идти",
+  "делать",
+  "говорить",
+  "учиться",
+  "машина",
+  "школа",
+  "ребенок",
+  "улица",
+];
+
+function getPrimaryTranslation(translation: string): string {
+  return translation
+    .split(/[;,]/)
+    .map((part) => part.replace(/\(.*?\)/g, "").trim())
+    .find(Boolean) ?? translation.trim();
+}
+
+function appendUniqueWords(base: Word[], incoming: Word[]): Word[] {
+  const map = new Map<number, Word>();
+
+  for (const word of [...base, ...incoming]) {
+    map.set(word.id, word);
+  }
+
+  return Array.from(map.values()).slice(-40);
+}
+
+function shuffle<T>(items: T[]): T[] {
+  return [...items].sort(() => Math.random() - 0.5);
+}
+
+function buildChoiceOptions(word: Word, pool: Word[]): string[] {
+  const correct = getPrimaryTranslation(word.translation);
+  const used = new Set([correct.toLowerCase()]);
+
+  const distractors = pool
+    .filter((candidate) => candidate.id !== word.id)
+    .map((candidate) => getPrimaryTranslation(candidate.translation))
+    .filter((translation) => {
+      const key = translation.toLowerCase();
+      if (!translation || used.has(key)) {
+        return false;
+      }
+
+      used.add(key);
+      return true;
+    });
+
+  for (const fallback of FALLBACK_TRANSLATIONS) {
+    if (distractors.length >= 3) {
+      break;
+    }
+
+    const key = fallback.toLowerCase();
+    if (!used.has(key)) {
+      used.add(key);
+      distractors.push(fallback);
+    }
+  }
+
+  return shuffle([correct, ...distractors.slice(0, 3)]);
+}
+
+async function fetchRandomWord(): Promise<Word> {
+  const response = await fetch("/vocab/random");
+
+  if (!response.ok) {
+    throw new Error("Не удалось загрузить слово");
+  }
+
+  return response.json();
+}
+
+async function fetchDistractorPool(count = 8): Promise<Word[]> {
+  const results = await Promise.allSettled(Array.from({ length: count }, () => fetchRandomWord()));
+
+  return results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+}
 
 export default function App() {
   const [word, setWord] = useState<Word | null>(null);
   const [feedback, setFeedback] = useState<CheckAnswerResponse | null>(null);
+  const [choiceOptions, setChoiceOptions] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isChecking, setIsChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [streak, setStreak] = useState(0);
+  const [answeredCount, setAnsweredCount] = useState(0);
+
+  const wordPoolRef = useRef<Word[]>([]);
+
+  const miniStreakProgress = useMemo(() => {
+    if (streak > 0 && streak % 5 === 0) {
+      return 100;
+    }
+
+    return (streak % 5) * 20;
+  }, [streak]);
 
   const loadRandomWord = useCallback(async () => {
     setIsLoading(true);
     setFeedback(null);
     setError(null);
+    setChoiceOptions([]);
 
     try {
-      const response = await fetch(`${API_URL}/vocab/random`);
+      const nextWord = await fetchRandomWord();
+      let nextPool = appendUniqueWords(wordPoolRef.current, [nextWord]);
 
-      if (!response.ok) {
-        throw new Error("Не удалось загрузить слово");
+      if (nextWord.task_type === "direct_translation") {
+        const distractors = await fetchDistractorPool();
+        nextPool = appendUniqueWords(nextPool, distractors);
       }
 
-      const data: Word = await response.json();
-      setWord(data);
+      wordPoolRef.current = nextPool;
+      setChoiceOptions(
+        nextWord.task_type === "direct_translation" ? buildChoiceOptions(nextWord, nextPool) : [],
+      );
+      setWord(nextWord);
     } catch (caughtError) {
       setWord(null);
       setError(caughtError instanceof Error ? caughtError.message : "Неизвестная ошибка");
@@ -39,74 +138,110 @@ export default function App() {
     void loadRandomWord();
   }, [loadRandomWord]);
 
-  const checkAnswer = async (answer: string) => {
-    if (!word) {
-      return;
-    }
-
-    setIsChecking(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`${API_URL}/vocab/${word.id}/check`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ answer }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Не удалось проверить ответ");
+  const checkAnswer = useCallback(
+    async (answer: string) => {
+      if (!word) {
+        return;
       }
 
-      const data: CheckAnswerResponse = await response.json();
-      setFeedback(data);
-    } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Неизвестная ошибка");
-    } finally {
-      setIsChecking(false);
-    }
-  };
+      setIsChecking(true);
+      setError(null);
+
+      try {
+        const response = await fetch(`/vocab/${word.id}/check`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            answer,
+            task_type: word.task_type,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Не удалось проверить ответ");
+        }
+
+        const data: CheckAnswerResponse = await response.json();
+        setFeedback(data);
+        setAnsweredCount((current) => current + 1);
+        setStreak((current) => (data.correct ? current + 1 : 0));
+      } catch (caughtError) {
+        setError(caughtError instanceof Error ? caughtError.message : "Неизвестная ошибка");
+      } finally {
+        setIsChecking(false);
+      }
+    },
+    [word],
+  );
 
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-8 text-slate-950 sm:px-6 lg:px-8">
-      <div className="mx-auto mb-8 max-w-2xl">
-        <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Deutsch Trainer
-        </p>
-        <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Карточки немецких слов</h1>
+    <main className="min-h-screen bg-[#f6f8fb] px-4 py-6 text-slate-950 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-3xl">
+        <header className="mb-6">
+          <div className="mb-4 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-black uppercase tracking-wider text-emerald-600">
+                Deutsch Trainer
+              </p>
+              <h1 className="mt-1 text-3xl font-black tracking-tight sm:text-4xl">
+                Карточки немецких слов
+              </h1>
+            </div>
+
+            <div className="rounded-2xl bg-white px-4 py-3 text-right shadow-sm">
+              <p className="text-xs font-black uppercase tracking-wide text-slate-400">Streak</p>
+              <p className="text-2xl font-black text-slate-950">{streak}</p>
+            </div>
+          </div>
+
+          <div className="rounded-full bg-white p-2 shadow-sm">
+            <div className="h-4 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-emerald-500 transition-all duration-500 ease-out"
+                style={{ width: `${miniStreakProgress}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="mt-2 flex justify-between text-sm font-bold text-slate-500">
+            <span>{Math.min(streak % 5 || (streak > 0 ? 5 : 0), 5)} / 5 до мини-серии</span>
+            <span>Ответов: {answeredCount}</span>
+          </div>
+        </header>
+
+        {isLoading && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-lg font-bold shadow-xl shadow-slate-200/70">
+            Загружаем упражнение...
+          </div>
+        )}
+
+        {!isLoading && error && (
+          <div className="rounded-2xl border-2 border-rose-200 bg-rose-50 p-6 text-rose-950 shadow-xl shadow-rose-100">
+            <p className="text-xl font-black">Ошибка</p>
+            <p className="mt-2 font-semibold">{error}</p>
+            <button
+              type="button"
+              onClick={() => void loadRandomWord()}
+              className="mt-5 rounded-xl bg-rose-600 px-5 py-3 font-black text-white shadow-lg shadow-rose-200 transition hover:-translate-y-0.5 hover:bg-rose-700"
+            >
+              Повторить
+            </button>
+          </div>
+        )}
+
+        {!isLoading && !error && word && (
+          <Flashcard
+            word={word}
+            feedback={feedback}
+            choiceOptions={choiceOptions}
+            isChecking={isChecking}
+            onCheck={checkAnswer}
+            onNext={loadRandomWord}
+          />
+        )}
       </div>
-
-      {isLoading && (
-        <div className="mx-auto max-w-2xl rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm">
-          Загружаем слово...
-        </div>
-      )}
-
-      {!isLoading && error && (
-        <div className="mx-auto max-w-2xl rounded-lg border border-rose-200 bg-rose-50 p-6 text-rose-950 shadow-sm">
-          <p className="font-semibold">Ошибка</p>
-          <p className="mt-2">{error}</p>
-          <button
-            type="button"
-            onClick={() => void loadRandomWord()}
-            className="mt-4 rounded-md bg-rose-950 px-5 py-3 font-semibold text-white transition hover:bg-rose-800"
-          >
-            Повторить
-          </button>
-        </div>
-      )}
-
-      {!isLoading && !error && word && (
-        <Flashcard
-          word={word}
-          feedback={feedback}
-          isChecking={isChecking}
-          onCheck={checkAnswer}
-          onNext={loadRandomWord}
-        />
-      )}
     </main>
   );
 }

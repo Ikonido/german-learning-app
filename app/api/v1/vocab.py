@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_current_user_optional
 from app.crud.vocab import (
     check_translation,
-    get_random_word,
+    get_random_word_with_task,
     get_word_by_id,
 )
 from app.db.session import get_db
@@ -17,12 +17,13 @@ from app.schemas.vocab import (
     CheckAnswerResponse,
     WordRead,
     WordWithProgress,
+    WordWithTask,
 )
 
 router = APIRouter(prefix="/vocab", tags=["vocabulary"])
 
 
-@router.get("/random", response_model=WordWithProgress)
+@router.get("/random", response_model=WordWithTask)
 def get_random_vocab_word(
     word_type: WordType | None = Query(None, description="Filter by word type: noun or verb"),
     level: str | None = Query(None, description="Filter by level e.g. A1, A2, B1"),
@@ -31,11 +32,15 @@ def get_random_vocab_word(
 ):
     """
     Get a random word for practice.
+    The backend now randomly assigns a task_type:
+      - direct_translation: translate German → Russian
+      - reverse_translation: translate Russian → German
+      - fill_blank: fill the word into the example_sentence (shown with ___)
     If authenticated, will try to return due reviews / new words first.
     """
     user_id = current_user.id if current_user else None
 
-    word = get_random_word(
+    word, task_type, blank_sentence = get_random_word_with_task(
         db=db,
         word_type=word_type,
         level=level,
@@ -44,8 +49,8 @@ def get_random_vocab_word(
     )
 
     if not word:
-        # Fallback: any word
-        word = get_random_word(
+        # Fallback without user filter
+        word, task_type, blank_sentence = get_random_word_with_task(
             db=db, word_type=word_type, level=level, user_id=None, exclude_known=False
         )
 
@@ -62,9 +67,14 @@ def get_random_vocab_word(
             .first()
         )
 
-    # Build response manually to include progress
+    # Build response
     word_data = WordRead.model_validate(word)
-    return WordWithProgress(**word_data.model_dump(), progress=progress)
+    base_response = WordWithProgress(**word_data.model_dump(), progress=progress)
+    return WordWithTask(
+        **base_response.model_dump(),
+        task_type=task_type,
+        blank_sentence=blank_sentence,
+    )
 
 
 @router.post("/{word_id}/check", response_model=CheckAnswerResponse)
@@ -85,6 +95,7 @@ def check_word_translation(
             db=db,
             word_id=word_id,
             user_answer=payload.answer,
+            task_type=payload.task_type,
             user_id=user_id,
         )
         return result
