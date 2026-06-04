@@ -18,5 +18,5 @@ passlib[bcrypt]==1.7.4
 python-multipart==0.0.20
 
 # Dev / Utils (optional but useful)
-# pytest==8.3.4
-# httpx==0.28.1  # for testing
+pytest==8.3.4
+httpx==0.28.1  # for testing

@@ -113,9 +113,14 @@ export default function Flashcard({
         `___ (${word.translation})`;
 
       return (
-        <p className="mx-auto max-w-xl text-3xl font-black leading-tight text-slate-950 sm:text-4xl">
-          {renderBlankSentence(sentence)}
-        </p>
+        <div>
+          <p className="mx-auto max-w-xl text-3xl font-black leading-tight text-slate-950 sm:text-4xl">
+            {renderBlankSentence(sentence)}
+          </p>
+          <p className="mt-4 text-sm font-semibold text-slate-500">
+            Значение пропущенного слова: {word.translation}
+          </p>
+        </div>
       );
     }
 

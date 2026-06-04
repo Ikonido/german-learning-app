@@ -70,6 +70,9 @@ def get_random_word_with_task(
     """
     Returns a random word + a randomly chosen task_type for the exercise.
     Also returns precomputed blank_sentence when task_type == 'fill_blank'.
+
+    'fill_blank' is only selected if the word has a non-empty example_sentence.
+    Otherwise it falls back to direct_translation or reverse_translation.
     """
     word = get_random_word(
         db=db,
@@ -81,12 +84,17 @@ def get_random_word_with_task(
     if not word:
         return None, "direct_translation", None
 
-    task_type: str = random.choice(
-        ["direct_translation", "reverse_translation", "fill_blank"]
-    )
+    # Only allow 'fill_blank' if the word has a usable example_sentence.
+    # This prevents breaking the frontend when the word was added without an example.
+    has_example = bool(word.example_sentence and word.example_sentence.strip())
+    possible_tasks = ["direct_translation", "reverse_translation"]
+    if has_example:
+        possible_tasks.append("fill_blank")
+
+    task_type: str = random.choice(possible_tasks)
 
     blank_sentence: str | None = None
-    if task_type == "fill_blank" and word.example_sentence:
+    if task_type == "fill_blank" and has_example:
         # Replace the vocabulary item with blank. The sentence in DB must contain the exact german word.
         blank_sentence = word.example_sentence.replace(word.german, "___")
 
