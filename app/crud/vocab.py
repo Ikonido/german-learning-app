@@ -93,6 +93,49 @@ def get_random_word_with_task(
     return word, task_type, blank_sentence
 
 
+def get_matching_words(
+    db: Session,
+    count: int = 5,
+    user_id: int | None = None,
+) -> list[Word]:
+    """
+    Returns up to `count` words for the matching pairs game.
+    Prefers words that the user has already interacted with (has UserProgress entry),
+    falling back to completely random words if not enough progressed words.
+    """
+    selected: list[Word] = []
+
+    if user_id is not None:
+        # Words the user has started learning (has progress record)
+        # Uses the relationship defined on the Word model
+        progressed = (
+            db.query(Word)
+            .join(Word.progress_entries)
+            .filter(UserProgress.user_id == user_id)
+            .all()
+        )
+        if progressed:
+            k = min(count, len(progressed))
+            selected = random.sample(progressed, k) if k < len(progressed) else progressed[:]
+
+    # Fill remaining slots with random words (avoiding duplicates)
+    if len(selected) < count:
+        existing_ids = {w.id for w in selected}
+        filler_query = db.query(Word)
+        if existing_ids:
+            filler_query = filler_query.filter(~Word.id.in_(list(existing_ids)))
+
+        fillers = filler_query.all()
+        if fillers:
+            needed = count - len(selected)
+            additional = random.sample(fillers, min(needed, len(fillers)))
+            selected.extend(additional)
+
+    # Final shuffle of the word list (order doesn't matter here, sides will be shuffled in router)
+    random.shuffle(selected)
+    return selected[:count]
+
+
 def get_or_create_progress(db: Session, user_id: int, word_id: int) -> UserProgress:
     progress = (
         db.query(UserProgress)

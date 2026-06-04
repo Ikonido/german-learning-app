@@ -111,3 +111,45 @@ class CheckAnswerResponse(BaseModel):
     word_type: WordType
     task_type: TaskType | None = None
     # For future: points_earned, streak etc
+
+
+# --- Matching Pairs Game (Соединить ответы) ---
+class MatchingWord(BaseModel):
+    """German side item for matching game."""
+    id: int
+    word_text: str
+
+
+class MatchingTranslation(BaseModel):
+    """Russian translation side item for matching game."""
+    id: int
+    translation_text: str
+
+
+class MatchingGameResponse(BaseModel):
+    """Response for GET /vocab/matching.
+
+    Both lists are independently shuffled on the backend.
+    The 'id' fields are used by the client to determine correct pairs.
+    """
+    german_words: list[MatchingWord]
+    russian_translations: list[MatchingTranslation]
+    count: int = 5
+
+
+class MatchingCheckRequest(BaseModel):
+    """Client sends the list of word IDs that were successfully paired in the matching game."""
+    matched_ids: list[int] = Field(
+        ...,
+        min_length=1,
+        description="IDs of words the user correctly matched in this round"
+    )
+    # Future: time_spent_seconds, mistakes_count, etc.
+
+
+class MatchingCheckResponse(BaseModel):
+    correct_count: int
+    message: str
+    # Simple XP / points for gamification. Real implementation can be more sophisticated.
+    xp_earned: int = 0
+    # Optionally return updated progress summaries for the matched words
