@@ -1,5 +1,7 @@
-from pydantic_settings import BaseSettings
 from functools import lru_cache
+
+from pydantic import field_validator
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -7,7 +9,7 @@ class Settings(BaseSettings):
     VERSION: str = "0.1.0"
 
     # Database
-    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/deutsch"
+    DATABASE_URL: str = "sqlite:///./german_app.db"
 
     # Auth
     SECRET_KEY: str = "CHANGE_THIS_IN_PRODUCTION_very_long_random_string_here"
@@ -16,6 +18,25 @@ class Settings(BaseSettings):
 
     # Learning
     DEFAULT_LEVEL: str = "A1"
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def normalize_database_url(cls, value: str) -> str:
+        if not isinstance(value, str):
+            return value
+
+        value = value.strip().strip('"').strip("'")
+
+        # Helpful recovery for a common .env typo:
+        # DATABASE_URL=DATABASE_URL=sqlite:///./german_app.db
+        if value.startswith("DATABASE_URL="):
+            value = value.split("=", 1)[1].strip()
+
+        # Some providers expose postgres://, while SQLAlchemy expects postgresql://.
+        if value.startswith("postgres://"):
+            value = "postgresql://" + value[len("postgres://"):]
+
+        return value
 
     class Config:
         env_file = ".env"

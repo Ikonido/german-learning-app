@@ -15,15 +15,23 @@ branch_labels = None
 depends_on = None
 
 
+def get_enum(name: str, *values: str):
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        return postgresql.ENUM(*values, name=name, create_type=True)
+    return sa.Enum(*values, name=name, native_enum=False)
+
+
 def upgrade() -> None:
     # Enums
-    word_type_enum = postgresql.ENUM('noun', 'verb', name='wordtype', create_type=True)
-    gender_enum = postgresql.ENUM('der', 'die', 'das', name='gender', create_type=True)
-    auxiliary_enum = postgresql.ENUM('haben', 'sein', name='auxiliary', create_type=True)
+    word_type_enum = get_enum('wordtype', 'noun', 'verb')
+    gender_enum = get_enum('gender', 'der', 'die', 'das')
+    auxiliary_enum = get_enum('auxiliary', 'haben', 'sein')
 
-    word_type_enum.create(op.get_bind(), checkfirst=True)
-    gender_enum.create(op.get_bind(), checkfirst=True)
-    auxiliary_enum.create(op.get_bind(), checkfirst=True)
+    if op.get_bind().dialect.name == "postgresql":
+        word_type_enum.create(op.get_bind(), checkfirst=True)
+        gender_enum.create(op.get_bind(), checkfirst=True)
+        auxiliary_enum.create(op.get_bind(), checkfirst=True)
 
     # users
     op.create_table(
@@ -131,7 +139,8 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_users_id'), table_name='users')
     op.drop_table('users')
 
-    # Drop enums (best effort)
-    op.execute("DROP TYPE IF EXISTS auxiliary")
-    op.execute("DROP TYPE IF EXISTS gender")
-    op.execute("DROP TYPE IF EXISTS wordtype")
+    if op.get_bind().dialect.name == "postgresql":
+        # Drop enums (best effort)
+        op.execute("DROP TYPE IF EXISTS auxiliary")
+        op.execute("DROP TYPE IF EXISTS gender")
+        op.execute("DROP TYPE IF EXISTS wordtype")
