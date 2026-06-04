@@ -28,8 +28,36 @@ def get_random_word(
 ) -> Word | None:
     """
     Returns a random word, optionally filtered.
-    If user_id provided, tries to prioritize due reviews or new words.
+    Priority:
+      1. If user_id: first try words that are DUE for review (next_review_date <= today)
+         and have UserProgress for this user.
+      2. Fall back to the previous logic (new / not-yet-mastered words).
     """
+    # --- 1. Prioritize DUE reviews for the user ---
+    if user_id:
+        due_query = (
+            db.query(Word)
+            .join(UserProgress, Word.id == UserProgress.word_id)
+            .options(
+                joinedload(Word.noun_detail),
+                joinedload(Word.verb_detail),
+            )
+            .filter(
+                UserProgress.user_id == user_id,
+                UserProgress.next_review_date <= date.today(),
+            )
+        )
+
+        if word_type:
+            due_query = due_query.filter(Word.word_type == word_type)
+        if level:
+            due_query = due_query.filter(Word.level == level)
+
+        due_words = due_query.all()
+        if due_words:
+            return random.choice(due_words)
+
+    # --- 2. Fallback: original random selection (new words / not fully mastered) ---
     query = db.query(Word).options(
         joinedload(Word.noun_detail),
         joinedload(Word.verb_detail),
@@ -168,16 +196,30 @@ def get_or_create_progress(db: Session, user_id: int, word_id: int) -> UserProgr
 
 
 def update_progress_after_review(
-    db: Session, progress: UserProgress, is_correct: bool
+    db: Session, progress: UserProgress, quality: int
 ) -> UserProgress:
     """
-    Simple SM-2 inspired spaced repetition update.
+    Full SuperMemo-2 (SM-2) spaced repetition update.
+
+    quality: 0-5 (user's recall quality)
+      - 5 = perfect recall (e.g. ideal input)
+      - 4 = correct (e.g. good choice in matching or slight hesitation)
+      - 3 = correct with difficulty
+      - 0-2 = incorrect (forgotten or wrong)
+
+    Updates: ease_factor, interval_days, repetitions, next_review_date,
+    correct_count / incorrect_count.
     """
     now = datetime.now(timezone.utc)
     progress.last_reviewed_at = now
-    progress.next_review_date = date.today()
 
-    if is_correct:
+    if quality < 3:
+        progress.incorrect_count += 1
+        progress.repetitions = 0
+        progress.interval_days = 1
+        # Optionally reduce EF on failure (common variant)
+        progress.ease_factor = max(1.3, progress.ease_factor - 0.2)
+    else:
         progress.correct_count += 1
         progress.repetitions += 1
 
@@ -186,19 +228,19 @@ def update_progress_after_review(
         elif progress.repetitions == 2:
             progress.interval_days = 6
         else:
-            progress.interval_days = int(progress.interval_days * progress.ease_factor)
+            progress.interval_days = int(round(progress.interval_days * progress.ease_factor))
 
-        # Ease bonus on success
-        progress.ease_factor = min(2.5, progress.ease_factor + 0.1)
-    else:
-        progress.incorrect_count += 1
-        progress.repetitions = 0
-        progress.interval_days = 0
-        progress.ease_factor = max(1.3, progress.ease_factor - 0.2)
+        # Update Ease Factor (EF)
+        ef_change = 0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)
+        progress.ease_factor = progress.ease_factor + ef_change
+        if progress.ease_factor < 1.3:
+            progress.ease_factor = 1.3
+        # Cap at reasonable max, e.g. 2.5
+        if progress.ease_factor > 2.5:
+            progress.ease_factor = 2.5
 
-    # Set next review
-    if progress.interval_days > 0:
-        progress.next_review_date = date.today() + timedelta(days=progress.interval_days)
+    # Calculate next review date
+    progress.next_review_date = date.today() + timedelta(days=progress.interval_days)
 
     db.add(progress)
     db.commit()
@@ -331,7 +373,10 @@ def check_translation(
     # Update SRS progress (same for all task types)
     if user_id is not None:
         progress = get_or_create_progress(db, user_id, word.id)
-        update_progress_after_review(db, progress, is_correct)
+        # Map for card-style input recall:
+        # correct input recall = 5 (perfect), incorrect = 0
+        quality = 5 if is_correct else 0
+        update_progress_after_review(db, progress, quality)
 
     return CheckAnswerResponse(
         correct=is_correct,

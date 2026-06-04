@@ -160,8 +160,8 @@ def check_matching_pairs(
         for wid in matched_ids:
             try:
                 progress = get_or_create_progress(db, user_id, wid)
-                # Treat a successful match as one correct review (updates SRS)
-                update_progress_after_review(db, progress, is_correct=True)
+                # Successful match in the game = quality 4 (good choice, not "perfect free recall")
+                update_progress_after_review(db, progress, quality=4)
                 total_xp += xp_per_pair
             except Exception:
                 # bad id or db issue — ignore for this pair
