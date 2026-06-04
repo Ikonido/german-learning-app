@@ -1,154 +1,298 @@
-# Deutsch Lernen — Backend
+# Deutsch Lernen — Тренажёр немецкого языка
 
-Фундамент backend'а для приложения изучения немецкого языка.  
-Оптимизированная структура базы данных под специфику немецкого: существительные (род + множественное число) и глаголы (3 основные формы + вспомогательный глагол).
+Полноценное full-stack приложение для изучения немецкого языка.
+
+**Основные возможности:**
+- Интерактивные карточки с тремя типами заданий (`direct_translation`, `reverse_translation`, `fill_blank`)
+- Мини-игра **«Соединить пары»** (Matching Pairs)
+- Система прогресса на основе упрощённого Spaced Repetition (SM-2)
+- Поддержка существительных (с родом и множественным числом) и глаголов (3 основные формы + haben/sein)
+- Готовый SPA-фронтенд на React + TypeScript + Tailwind
 
 ## Стек
 
-- **Python 3.12+** + **FastAPI**
-- **SQLAlchemy 2.0** (синхронный режим для простоты)
-- **PostgreSQL 16+**
-- **Alembic** для миграций
-- **Pydantic v2**
-- JWT аутентификация (python-jose + passlib bcrypt)
+**Backend**
+- Python 3.12+ + FastAPI
+- SQLAlchemy 2.0 (синхронный)
+- SQLite (по умолчанию) / PostgreSQL
+- Pydantic v2 + Alembic
+- JWT (python-jose + passlib)
 
-Почему именно этот стек:
-- Отличная типизация и валидация (Pydantic + SQLAlchemy модели).
-- Легко расширять (добавлять прилагательные, предлоги, spaced repetition улучшения).
-- Alembic даёт полный контроль над схемой.
-- Простой Docker-стек для быстрого старта.
+**Frontend**
+- React 18 + TypeScript
+- Vite + Tailwind CSS
+- Проксирование `/vocab/*` на бэкенд
+
+## Быстрый старт (Windows + SQLite) — рекомендуется
+
+Самый простой способ запустить и бэкенд, и фронтенд одной командой:
+
+```powershell
+# 1. Создай виртуальное окружение и установи зависимости
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+
+cd frontend
+npm install
+cd ..
+
+# 2. Инициализируй базу данных SQLite и наполни её данными
+python -c "from app.db.session import engine, Base; Base.metadata.create_all(engine)"
+python scripts/seed_expanded.py
+
+# 3. Запусти проект (бэкенд + фронтенд + браузер)
+.\run_project.bat
+```
+
+**Что делает `run_project.bat`:**
+- Запускает FastAPI (`uvicorn`) в отдельном окне
+- Запускает Vite dev-сервер фронтенда в отдельном окне
+- Через 3 секунды открывает браузер на `http://localhost:5173`
+
+**Доступные адреса:**
+- Frontend: http://localhost:5173
+- Backend API: http://localhost:8000
+- Swagger UI (документация): http://localhost:8000/docs
+
+По умолчанию используется файл `german_app.db` (SQLite).
+
+## Ручная разработка
+
+```powershell
+.venv\Scripts\activate
+
+# Инициализация БД (если ещё не сделали)
+python -c "from app.db.session import engine, Base; Base.metadata.create_all(engine)"
+
+# Наполнение (рекомендуется)
+python scripts/seed_expanded.py
+
+# Запуск только бэкенда
+uvicorn app.main:app --reload
+
+# В другом терминале — фронтенд
+cd frontend
+npm run dev
+```
+
+## Альтернатива: PostgreSQL + Docker
+
+```bash
+cp .env.example .env
+# В .env укажи DATABASE_URL=postgresql://...
+
+docker compose up --build -d
+docker compose exec api alembic upgrade head
+docker compose exec api python scripts/seed_expanded.py
+```
 
 ## Структура проекта
 
 ```
 .
-├── alembic/                  # Миграции БД
-├── app/
+├── app/                      # Backend (FastAPI)
 │   ├── api/v1/               # Роутеры (auth, vocab)
-│   ├── core/                 # Конфиг, security (JWT, хеши)
-│   ├── crud/                 # Бизнес-логика работы с БД
-│   ├── db/                   # Session + Base
-│   ├── models/               # SQLAlchemy модели (User, Word, NounDetail, VerbDetail, UserProgress)
-│   ├── schemas/              # Pydantic схемы (вход/выход API)
+│   ├── core/                 # Конфигурация и безопасность
+│   ├── crud/                 # Логика работы с БД
+│   ├── db/                   # SQLAlchemy сессия
+│   ├── models/               # Модели (Word, NounDetail, VerbDetail, UserProgress...)
+│   ├── schemas/              # Pydantic-схемы
 │   └── main.py
+├── frontend/                 # React + Vite + Tailwind SPA
+│   ├── src/
+│   │   ├── components/       # Flashcard, MatchingGame и др.
+│   │   └── App.tsx
+│   ├── vite.config.ts        # Прокси /vocab → бэкенд
+│   └── ...
 ├── scripts/
-│   └── seed.py               # Наполнение начальными словами
+│   ├── seed.py               # Базовый сидер
+│   └── seed_expanded.py      # 120+ слов A1–A2 с примерами предложений (рекомендуется)
+├── alembic/                  # Миграции БД
+├── run_project.bat           # Быстрый запуск всего проекта на Windows
 ├── docker-compose.yml
-├── Dockerfile
 ├── requirements.txt
-├── alembic.ini
+├── .env.example              # DATABASE_URL=sqlite:///./german_app.db (по умолчанию)
+├── german_app.db             # SQLite БД (создаётся автоматически)
 └── README.md
 ```
 
-## База данных (ключевые таблицы)
+## База данных
 
-### `words`
-- `german` — базовая форма (Tisch, gehen)
-- `translation` — перевод (на русский)
-- `word_type` — noun / verb
-- `level`, `category`, `example_sentence`
+### Основные таблицы
 
-### `noun_details` (1:1 к words)
-- `gender` — **der | die | das** (Enum)
-- `plural` — форма множественного числа (Tische, Kinder)
-
-### `verb_details` (1:1 к words)
-- `praeteritum`
-- `perfekt`
-- `auxiliary` — **haben | sein** (Enum)
-
-### `users` + `user_progress`
-Прогресс использует упрощённый алгоритм **Spaced Repetition (SM-2)**:
-- `ease_factor`, `interval_days`, `repetitions`
-- `next_review_date`
-- `correct_count` / `incorrect_count`
-
-Это позволяет в будущем легко добавлять Anki-подобное повторение.
+- `words` — `german`, `translation`, `word_type` (noun/verb), `level`, `category`, `example_sentence`
+- `noun_details` — `gender` (der/die/das), `plural`
+- `verb_details` — `praeteritum`, `perfekt`, `auxiliary` (haben/sein)
+- `users` + `user_progress` — Spaced Repetition (ease_factor, interval_days, repetitions, next_review_date и т.д.)
 
 ## API (основные эндпоинты)
 
-### Auth
+### Аутентификация
+
 - `POST /auth/register`
-- `POST /auth/login` → JWT
-- `GET  /auth/me`
+- `POST /auth/login` → возвращает JWT
+- `GET  /auth/me` (требует Bearer токен)
 
-### Vocabulary
-- `GET /vocab/random?word_type=noun&level=A1` — случайное слово (с прогрессом пользователя, если авторизован)
-- `POST /vocab/{id}/check` — проверка ответа пользователя
-  - Тело: `{ "answer": "der Tisch" }` или `{ "answer": "gegangen" }`
-  - Возвращает `correct`, правильный ответ с артиклем/формами, обновляет прогресс автоматически
-- `GET /vocab/{id}`
-- `GET /vocab/progress/stats` — статистика пользователя (due today, accuracy и т.д.)
+### Практика (карточки)
 
-## Быстрый старт (Docker — рекомендуется)
+**GET /vocab/random**
 
-```bash
-# 1. Скопируй env
-cp .env.example .env
+Возвращает слово + автоматически выбранный `task_type`:
 
-# 2. Подними БД + API
-docker compose up --build -d
+- `direct_translation` — переведи немецкое слово на русский
+- `reverse_translation` — переведи русский перевод на немецкий
+- `fill_blank` — подставь слово в предложение (`blank_sentence` уже содержит `___`)
 
-# 3. Примени миграции
-docker compose exec api alembic upgrade head
+В ответе также приходит `blank_sentence` (только для `fill_blank`) и текущий `progress` пользователя (если авторизован).
 
-# 4. Засейди данные (существительные + глаголы A1)
-docker compose exec api python scripts/seed.py
+**POST /vocab/{id}/check**
 
-# 5. Готово!
-# API: http://localhost:8000
-# Документация: http://localhost:8000/docs
+Проверка ответа. Обязательно передавай `task_type`, который пришёл из `/random`.
+
+#### Пример для `direct_translation` (ответ на русском)
+
+```http
+POST /vocab/42/check
+Content-Type: application/json
+
+{
+  "answer": "дом",
+  "task_type": "direct_translation"
+}
 ```
 
-## Локальная разработка (без Docker)
+#### Пример для `reverse_translation` (ответ на немецком)
 
-```bash
-python -m venv .venv
-.venv\Scripts\activate          # Windows
-# или source .venv/bin/activate
+```http
+POST /vocab/42/check
+Content-Type: application/json
 
-pip install -r requirements.txt
-
-# .env с DATABASE_URL на локальный postgres
-
-alembic upgrade head
-python scripts/seed.py
-
-uvicorn app.main:app --reload
+{
+  "answer": "das Haus",
+  "task_type": "reverse_translation"
+}
 ```
 
-## Как добавить новые слова
+**Ответ** (в обоих случаях):
 
-Самый простой способ — через Python shell или новый скрипт:
+```json
+{
+  "correct": true,
+  "correct_answer": "das Haus (мн: die Häuser)",
+  "translation": "дом",
+  "message": "Отлично!",
+  "word_id": 42,
+  "word_type": "noun",
+  "task_type": "reverse_translation"
+}
+```
+
+Если пользователь авторизован — автоматически обновляется `UserProgress` (SRS).
+
+### Мини-игра «Соединить пары» (Matching Pairs)
+
+**GET /vocab/matching**
+
+Возвращает 5 слов. Два независимо перемешанных массива:
+
+- `german_words` — немецкие варианты (`{id, word_text}`)
+- `russian_translations` — русские переводы (`{id, translation_text}`)
+
+Пользователь соединяет пары по `id`. Сервер никогда не возвращает их в одинаковом порядке.
+
+**Пример ответа:**
+
+```json
+{
+  "german_words": [
+    { "id": 5, "word_text": "Tisch" },
+    { "id": 12, "word_text": "gehen" }
+  ],
+  "russian_translations": [
+    { "id": 12, "translation_text": "идти, ходить" },
+    { "id": 5, "translation_text": "стол" }
+  ],
+  "count": 5
+}
+```
+
+**POST /vocab/matching/check**
+
+После того как игрок закончил раунд, отправляем список успешно соединённых ID.
+
+```http
+POST /vocab/matching/check
+Content-Type: application/json
+
+{
+  "matched_ids": [5, 12, 7, 33, 19]
+}
+```
+
+**Ответ:**
+
+```json
+{
+  "correct_count": 5,
+  "message": "Отлично! Ты правильно соединил 5 пар(ы).",
+  "xp_earned": 50
+}
+```
+
+- Для авторизованных пользователей по каждому `id` обновляется `UserProgress` (как успешное повторение).
+- Начисляются простые очки XP (по 10 за пару).
+
+## Наполнение базы данных
+
+Рекомендуется использовать расширенный сидер:
+
+```powershell
+python scripts/seed_expanded.py
+```
+
+Он:
+- Очищает старые данные
+- Добавляет 120+ слов A1–A2
+- Распределяет по категориям: Мебель, Еда, Семья, Движение, Время
+- Заполняет `example_sentence` у каждого слова (необходимо для `fill_blank`)
+
+## Как добавить новое слово вручную
 
 ```python
 from app.db.session import SessionLocal
 from app.models import Word, NounDetail, WordType, Gender
 
 db = SessionLocal()
-w = Word(german="Lampe", translation="лампа", word_type=WordType.NOUN, level="A1")
-db.add(w); db.flush()
+
+w = Word(
+    german="Lampe",
+    translation="лампа",
+    word_type=WordType.NOUN,
+    level="A1",
+    category="Мебель",
+    example_sentence="Die Lampe leuchtet im Zimmer."
+)
+db.add(w)
+db.flush()
+
 db.add(NounDetail(word_id=w.id, gender=Gender.DIE, plural="Lampen"))
 db.commit()
 ```
 
-Или используй `POST` в будущем (добавить админ-эндпоинт).
+## Разработка
 
-## Будущие улучшения (рекомендации)
-
-- Отдельный админ/seed API или CSV импорт
-- Полноценный SM-2 + fuzzy matching ответов
-- Поддержка прилагательных, артиклей, предлогов с управлением
-- Статистика по темам / уровням
-- Пользовательские списки слов (коллекции)
-- Экспорт в Anki CSV
+- Бэкенд: `uvicorn app.main:app --reload`
+- Фронтенд: `cd frontend && npm run dev`
+- Тесты: `pytest`
+- Миграции: `alembic revision --autogenerate -m "..."` → `alembic upgrade head`
 
 ## Полезные ссылки
 
-- FastAPI docs: https://fastapi.tiangolo.com
-- SQLAlchemy 2.0: https://docs.sqlalchemy.org/en/20/
-- Spaced repetition: алгоритм SM-2
+- [FastAPI](https://fastapi.tiangolo.com)
+- [SQLAlchemy 2.0](https://docs.sqlalchemy.org/en/20/)
+- Spaced Repetition (SM-2 алгоритм)
 
 ---
 
-Удачи с проектом! Немецкий — отличный язык. Der, die, das — это вызов, но мы его победим.
+Удачи в изучении немецкого! Der, die, das — мы справимся. 🇩🇪

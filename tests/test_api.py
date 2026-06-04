@@ -115,35 +115,63 @@ def test_get_random_word():
     response = client.get("/vocab/random")
     assert response.status_code == 200
     assert "german" in response.json()
+    assert response.json()["task_type"] in [
+        "direct_translation",
+        "reverse_translation",
+        "fill_blank",
+    ]
     assert response.json()["german"] in ["Haus", "gehen"]
 
 def test_check_answer_noun():
     # German article + word
-    response = client.post("/vocab/1/check", json={"answer": "das Haus"})
+    response = client.post(
+        "/vocab/1/check",
+        json={"answer": "das Haus", "task_type": "reverse_translation"},
+    )
     assert response.status_code == 200
     assert response.json()["correct"] is True
+    assert response.json()["task_type"] == "reverse_translation"
 
-    # Russian translation
-    response = client.post("/vocab/1/check", json={"answer": "дом"})
-    assert response.status_code == 200
-    assert response.json()["correct"] is True
-    
-    response = client.post("/vocab/1/check", json={"answer": "wrong"})
+    response = client.post(
+        "/vocab/1/check",
+        json={"answer": "wrong", "task_type": "reverse_translation"},
+    )
     assert response.status_code == 200
     assert response.json()["correct"] is False
 
+def test_check_answer_direct_translation_noun():
+    # German -> Russian
+    response = client.post(
+        "/vocab/1/check",
+        json={"answer": "дом", "task_type": "direct_translation"},
+    )
+    assert response.status_code == 200
+    assert response.json()["correct"] is True
+    assert response.json()["task_type"] == "direct_translation"
+
 def test_check_answer_verb():
     # German past form
-    response = client.post("/vocab/2/check", json={"answer": "ging"})
+    response = client.post(
+        "/vocab/2/check",
+        json={"answer": "ging", "task_type": "reverse_translation"},
+    )
     assert response.status_code == 200
     assert response.json()["correct"] is True
 
     # German perfect form
-    response = client.post("/vocab/2/check", json={"answer": "sein gegangen"})
+    response = client.post(
+        "/vocab/2/check",
+        json={"answer": "sein gegangen", "task_type": "reverse_translation"},
+    )
     assert response.status_code == 200
     assert response.json()["correct"] is True
 
-    # Russian translation
-    response = client.post("/vocab/2/check", json={"answer": "идти"})
+def test_check_answer_direct_translation_verb():
+    # German -> Russian
+    response = client.post(
+        "/vocab/2/check",
+        json={"answer": "идти", "task_type": "direct_translation"},
+    )
     assert response.status_code == 200
     assert response.json()["correct"] is True
+    assert response.json()["task_type"] == "direct_translation"
