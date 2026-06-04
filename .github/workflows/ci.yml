@@ -28,8 +28,8 @@ jobs:
       - name: Initialize SQLite database
         run: python -c "from app.db.session import engine, Base; Base.metadata.create_all(engine)"
 
-      - name: Run backend tests
-        run: pytest
+      - name: Run tests
+        run: python -m pytest
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
